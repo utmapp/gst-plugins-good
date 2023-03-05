@@ -917,6 +917,9 @@ done:
   return ret;
 }
 
+/**
+ * core_audio->io_proc_lock must be held!
+*/
 static inline void
 _remove_render_spdif_callback (GstCoreAudio * core_audio)
 {
@@ -950,6 +953,7 @@ _io_proc_spdif_start (GstCoreAudio * core_audio)
       "osx ring buffer start ioproc ID: %p device_id %lu",
       core_audio->procID, (gulong) core_audio->device_id);
 
+  g_mutex_lock (&core_audio->io_proc_lock);
   if (!core_audio->io_proc_active) {
     /* Add IOProc callback */
     status = AudioDeviceCreateIOProcID (core_audio->device_id,
@@ -958,12 +962,14 @@ _io_proc_spdif_start (GstCoreAudio * core_audio)
     if (status != noErr) {
       GST_ERROR_OBJECT (core_audio->osxbuf,
           ":AudioDeviceCreateIOProcID failed: %d", (int) status);
+      g_mutex_unlock (&core_audio->io_proc_lock);
       return FALSE;
     }
     core_audio->io_proc_active = TRUE;
   }
 
   core_audio->io_proc_needs_deactivation = FALSE;
+  g_mutex_unlock (&core_audio->io_proc_lock);
 
   /* Start device */
   status = AudioDeviceStart (core_audio->device_id, core_audio->procID);
@@ -991,9 +997,11 @@ _io_proc_spdif_stop (GstCoreAudio * core_audio)
       "osx ring buffer stop ioproc ID: %p device_id %lu",
       core_audio->procID, (gulong) core_audio->device_id);
 
+  g_mutex_lock (&core_audio->io_proc_lock);
   if (core_audio->io_proc_active) {
     _remove_render_spdif_callback (core_audio);
   }
+  g_mutex_unlock (&core_audio->io_proc_lock);
 
   _close_spdif (core_audio);
 
@@ -1054,6 +1062,7 @@ gst_core_audio_start_processing_impl (GstCoreAudio * core_audio)
 static gboolean
 gst_core_audio_pause_processing_impl (GstCoreAudio * core_audio)
 {
+  g_mutex_lock (&core_audio->io_proc_lock);
   if (core_audio->is_passthrough) {
     GST_DEBUG_OBJECT (core_audio,
         "osx ring buffer pause ioproc ID: %p device_id %lu",
@@ -1074,6 +1083,7 @@ gst_core_audio_pause_processing_impl (GstCoreAudio * core_audio)
       core_audio->io_proc_needs_deactivation = TRUE;
     }
   }
+  g_mutex_unlock (&core_audio->io_proc_lock);
   return TRUE;
 }
 
